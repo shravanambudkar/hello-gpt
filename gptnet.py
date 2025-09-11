@@ -26,6 +26,7 @@ class CausalSelfAttention(nn.Module):
         self.qkv_lin = nn.Linear(config.h_dim,3*config.h_dim)
         self.register_buffer('triller',torch.tril(torch.ones(1,1,self.T,self.T)))
         self.proj = nn.Linear(config.h_dim,config.h_dim)
+        self.proj.SCALE_THE_RESIDUAL = True
         
     def forward(self,x):
         B,T,C = x.shape
@@ -49,6 +50,7 @@ class MLP(nn.Module):
         self.lin1 = nn.Linear(config.h_dim,config.lin_dim)
         self.gelu = nn.GELU()
         self.lin2 = nn.Linear(config.lin_dim,config.h_dim)
+        self.lin2.SCALE_THE_RESIDUAL = True
         
     def forward(self,x):
         x = self.lin1(x)
@@ -80,10 +82,24 @@ class GPT(nn.Module):
         self.hidden_transformer_layers = nn.Sequential(*self.transformer_blocks) # unpacking the blocks as a sequential executor
         self.ln_forward = nn.LayerNorm(config.h_dim) # final layer noramlisation layer
         self.lm_head = nn.Linear(config.h_dim, config.vocab_size, bias=False) # Prediction of next token from the vocab
+        self.wte.weight = self.lm_head.weight
         
+        self.apply(self._init_weights)
+        
+    def _init_weights(self,module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'SCALE_THE_RESIDUAL'):
+                std *= (2 * self.config.blocks) ** (-0.5)
+            torch.nn.init.normal_(module.weight,mean=0.0,std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module,nn.Embedding):
+            torch.nn.init.normal_(module.weight,mean=0.0,std=0.02)
+    
     def forward(self,x):
         x_emb = self.wte(x)
-        x_pos =  self.pte(torch.tensor([i for i in range(x.shape[1])])) # Building the position embedding from the length of the tokens from shape (B,T)
+        x_pos =  self.pte(torch.arange(0,x.shape[1],dtype=torch.long,device=x.device)) # Building the position embedding from the length of the tokens from shape (B,T)
         x = x_emb + x_pos
         x = self.hidden_transformer_layers(x)
         x = self.ln_forward(x)
