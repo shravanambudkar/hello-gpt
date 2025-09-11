@@ -7,7 +7,7 @@ import torch
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f'using {device}')
 
-torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision('high')
 train_batches = 500
 batch_loader = BatchLoader(batch_size=4,context_length=1024)
 model = GPT(GPTconfig())
@@ -19,9 +19,10 @@ for _ in range(train_batches):
     x, y = batch_loader.next_batch()
     x = x.to(device)
     y = y.to(device)
-    logits = model(x)
-    B, T, C = logits.shape
-    loss = F.cross_entropy(logits.view(B*T,-1),y.view(-1))
+    with torch.autocast(device_type=device,dtype=torch.bfloat16):    
+        logits = model(x)
+        B, T, C = logits.shape
+        loss = F.cross_entropy(logits.view(B*T,-1),y.view(-1))
     print(f'current loss: {loss.item()}')
     loss.backward()
     optimizer.step()
