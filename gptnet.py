@@ -128,3 +128,48 @@ class GPT(nn.Module):
             param_count -= self.wte.weight.numel()
             
         return param_count
+
+
+
+class CosineAnnealingWithWarmup:
+    def __init__(self,
+            base_lr: float = 1e-5,
+            min_lr: float = 1e-5,
+            max_lr: float = 3e-4,
+            T_max: int = 100000,
+            optimizer: torch.optim.Optimizer = None,
+            warmup_steps: int = 500
+        ) -> None:
+        self.base_lr = base_lr
+        self.min_lr = min_lr
+        self.max_lr = max_lr
+        assert optimizer is not None, 'Optimizer cannot be None'
+        self.T_max = T_max
+        self.optimizer = optimizer
+        self.curr_step = None
+        self.warmup_steps = warmup_steps
+    
+    def _get_warmup_lr(self, curr_step):
+        return self.max_lr * curr_step / float(self.warmup_steps + 1e-8)
+    
+    def _cosine_decay_lr(self, curr_step):
+        cosine_step = curr_step - self.warmup_steps
+        cosine_max_steps = self.T_max - self.warmup_steps
+        
+        return float(self.min_lr) + (0.5 * (float(self.max_lr) - float(self.min_lr))) * (1 + math.cos(math.pi * (cosine_step/cosine_max_steps)))
+        
+    def step(self):
+            if self.curr_step == None:
+                self.curr_step = 1
+            else:
+                self.curr_step += 1
+            
+            if self.curr_step <= self.warmup_steps:
+                lr = self._get_warmup_lr(self.curr_step)
+            else:
+                lr = self._cosine_decay_lr(self.curr_step)
+                
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = lr
+                
+            return lr
